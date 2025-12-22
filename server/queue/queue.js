@@ -1,6 +1,6 @@
 const { Queue, Worker } = require('bullmq');
 const Redis = require('ioredis');
-const { crawlWebsite } = require('../crawler/puppeteerCrawler');
+const { crawlWebsite } = require('../crawler/playwrightCrawler');
 const { processSitemap } = require('../ai/aiProcessor');
 const { pool } = require('../db/init');
 const { broadcastStatusUpdate } = require('../websocket/websocket');
@@ -59,31 +59,7 @@ const crawlWorker = new Worker(
         [jobId, JSON.stringify(sitemap)]
       );
       
-      // Update status to AI_ANALYSIS
-      await pool.query(
-        'UPDATE crawl_jobs SET status = $1 WHERE id = $2',
-        ['AI_ANALYSIS', jobId]
-      );
-      await broadcastStatusUpdate(jobId);
-      
-      // Process with AI
-      const { optimizedSitemap, recommendations } = await processSitemap(jobId, sitemap);
-      
-      // Store optimized sitemap and recommendations
-      await pool.query(
-        'UPDATE sitemaps SET optimized_sitemap = $1 WHERE job_id = $2',
-        [JSON.stringify(optimizedSitemap), jobId]
-      );
-      
-      // Store recommendations
-      for (const rec of recommendations) {
-        await pool.query(
-          'INSERT INTO ai_recommendations (job_id, category, before, after, explanation) VALUES ($1, $2, $3, $4, $5)',
-          [jobId, rec.category, JSON.stringify(rec.before), JSON.stringify(rec.after), rec.explanation]
-        );
-      }
-      
-      // Update status to COMPLETED
+      // Update status to COMPLETED (AI improvement will be done manually via button)
       await pool.query(
         'UPDATE crawl_jobs SET status = $1, completed_at = NOW() WHERE id = $2',
         ['COMPLETED', jobId]
@@ -120,74 +96,124 @@ async function initQueue() {
   return crawlQueue;
 }
 
+/**
+ * Build sitemap tree structure (SitemapNode format like revize-ai)
+ */
 function buildSitemapStructure(pages) {
-  const structure = {};
-  
-  for (const page of pages) {
-    const url = new URL(page.url);
-    const pathParts = url.pathname.split('/').filter(p => p);
-    const hasHash = url.hash && url.hash !== '';
-    
-    // Handle hash URLs - include them in structure
-    if (hasHash && pathParts.length === 0) {
-      // Hash URL on homepage
-      if (!structure._hash) {
-        structure._hash = {
-          _count: 0,
-          _depth: 0,
-          _urls: []
-        };
-      }
-      structure._hash._count++;
-      structure._hash._urls.push({
-        url: page.url,
-        title: page.title,
-        depth: page.depth
-      });
-      continue;
-    }
-    
-    let current = structure;
-    for (let i = 0; i < pathParts.length; i++) {
-      const part = pathParts[i];
-      if (!current[part]) {
-        current[part] = {
-          _count: 0,
-          _depth: i + 1,
-          _urls: []
-        };
-      }
-      current[part]._count++;
-      if (i === pathParts.length - 1) {
-        current[part]._urls.push({
-          url: page.url,
-          title: page.title,
-          depth: page.depth
-        });
-        
-        // If this path has a hash, also add it as a hash entry
-        if (hasHash) {
-          const hashKey = part + '_hash';
-          if (!current[hashKey]) {
-            current[hashKey] = {
-              _count: 0,
-              _depth: i + 1,
-              _urls: []
-            };
-          }
-          current[hashKey]._count++;
-          current[hashKey]._urls.push({
-            url: page.url,
-            title: page.title,
-            depth: page.depth
-          });
-        }
-      }
-      current = current[part];
-    }
+  if (!pages || pages.length === 0) {
+    return {
+      id: "root",
+      url: "",
+      title: "Root",
+      depth: 0,
+      children: [],
+      status: "ok"
+    };
   }
   
-  return structure;
+  // Clean up titles and ensure all pages are included
+  const cleanedPages = pages.map((page, index) => {
+    let title = page.title;
+    // Clean up "ERROR: Error" titles
+    if (!title || title === 'ERROR: Error' || title === 'Error' || title === 'ERROR' || title.startsWith('ERROR:')) {
+      try {
+        const urlObj = new URL(page.url);
+        const hash = urlObj.hash?.substring(1);
+        const pathParts = urlObj.pathname.split('/').filter(p => p);
+        if (hash && hash.startsWith('/')) {
+          title = hash.substring(1).split('/').pop()?.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Page';
+        } else if (hash) {
+          title = hash.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Page';
+        } else {
+          title = pathParts.length > 0 
+            ? pathParts[pathParts.length - 1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+            : 'Home';
+        }
+      } catch {
+        title = 'Page';
+      }
+    }
+    return {
+      id: page.id || `page-${index}`,
+      url: page.url,
+      title: title,
+      depth: page.depth,
+      parentUrl: page.parentUrl,
+      status: "ok"
+    };
+  });
+  
+  // Find root page (homepage)
+  const rootPage = cleanedPages.find(p => {
+    try {
+      const u = new URL(p.url);
+      return (u.pathname === '/' || u.pathname === '') && (!u.hash || u.hash === '' || u.hash === '#');
+    } catch {
+      return false;
+    }
+  }) || cleanedPages[0];
+  
+  // Build a map of pages by URL for quick lookup
+  const pageMap = new Map();
+  cleanedPages.forEach(page => {
+    pageMap.set(page.url, {
+      ...page,
+      children: []
+    });
+  });
+  
+  // Build parent-child relationships
+  const rootNodes = [];
+  cleanedPages.forEach(page => {
+    const node = pageMap.get(page.url);
+    if (page.parentUrl && pageMap.has(page.parentUrl)) {
+      const parent = pageMap.get(page.parentUrl);
+      if (!parent.children) parent.children = [];
+      parent.children.push(node);
+    } else if (page.url === rootPage?.url || (!page.parentUrl && page.depth === 0)) {
+      rootNodes.push(node);
+    } else {
+      // Orphan page - add to root
+      rootNodes.push(node);
+    }
+  });
+  
+  // If no root nodes found, use the first page
+  if (rootNodes.length === 0 && cleanedPages.length > 0) {
+    rootNodes.push(pageMap.get(cleanedPages[0].url));
+  }
+  
+  // Build tree structure starting from root
+  const buildNode = (pageNode) => {
+    const node = {
+      id: pageNode.id,
+      url: pageNode.url,
+      title: pageNode.title || pageNode.url,
+      depth: pageNode.depth,
+      status: pageNode.status || "ok"
+    };
+    
+    if (pageNode.children && pageNode.children.length > 0) {
+      node.children = pageNode.children.map(buildNode);
+    }
+    
+    return node;
+  };
+  
+  // Return root node with all children
+  if (rootNodes.length === 1) {
+    return buildNode(rootNodes[0]);
+  } else {
+    // Multiple root nodes - create a parent root
+    return {
+      id: "root",
+      url: rootPage?.url || cleanedPages[0]?.url || "",
+      title: "Root",
+      depth: 0,
+      status: "ok",
+      children: rootNodes.map(buildNode)
+    };
+  }
 }
 
 module.exports = { crawlQueue, initQueue };

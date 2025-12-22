@@ -1,6 +1,6 @@
 FROM node:18-slim
 
-# Install Puppeteer dependencies
+# Install Playwright system dependencies
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -31,8 +31,11 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
+# Install dependencies (Playwright should be in dependencies, not devDependencies)
 RUN npm install --omit=dev
+
+# Install Playwright browsers (required for crawling)
+RUN npx playwright install chromium
 
 # Copy server code
 COPY server ./server

@@ -85,7 +85,7 @@ router.get('/:jobId', async (req, res) => {
     
     // Get sitemap
     const sitemapResult = await pool.query(
-      'SELECT * FROM sitemaps WHERE job_id = $1',
+      'SELECT original_sitemap FROM sitemaps WHERE job_id = $1',
       [jobId]
     );
     
@@ -98,8 +98,8 @@ router.get('/:jobId', async (req, res) => {
     res.json({
       ...job,
       pagesCount: parseInt(pagesResult.rows[0].count),
-      sitemap: sitemapResult.rows[0] || null,
-      recommendations: recsResult.rows,
+      sitemap: sitemapResult.rows[0] ? { original_sitemap: sitemapResult.rows[0].original_sitemap } : null,
+      recommendations: recsResult.rows || []
     });
   } catch (error) {
     console.error('Error fetching crawl:', error);
@@ -174,6 +174,84 @@ router.get('/:jobId/download/:format', async (req, res) => {
     res.send(sitemap.content);
   } catch (error) {
     console.error('Error generating sitemap:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/crawl/:jobId/improve
+ * Trigger AI improvement for a completed crawl job
+ */
+router.post('/:jobId/improve', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    // Check if job exists and is completed
+    const jobResult = await pool.query(
+      'SELECT * FROM crawl_jobs WHERE id = $1',
+      [jobId]
+    );
+    
+    if (jobResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    
+    const job = jobResult.rows[0];
+    
+    if (job.status !== 'COMPLETED' && job.status !== 'PROCESSING') {
+      return res.status(400).json({ error: 'Job must be completed before AI improvement can be applied' });
+    }
+    
+    // Get sitemap
+    const sitemapResult = await pool.query(
+      'SELECT original_sitemap FROM sitemaps WHERE job_id = $1',
+      [jobId]
+    );
+    
+    if (sitemapResult.rows.length === 0 || !sitemapResult.rows[0].original_sitemap) {
+      return res.status(400).json({ error: 'No sitemap available for improvement' });
+    }
+    
+    const sitemap = sitemapResult.rows[0].original_sitemap;
+    
+    // Update status to AI_ANALYSIS
+    await pool.query(
+      'UPDATE crawl_jobs SET status = $1 WHERE id = $2',
+      ['AI_ANALYSIS', jobId]
+    );
+    
+    // Process with AI
+    const { processSitemap } = require('../ai/aiProcessor');
+    const { recommendations } = await processSitemap(jobId, sitemap);
+    
+    // Store recommendations
+    for (const rec of recommendations) {
+      await pool.query(
+        'INSERT INTO ai_recommendations (job_id, category, before, after, explanation) VALUES ($1, $2, $3, $4, $5)',
+        [jobId, rec.category, JSON.stringify(rec.before), JSON.stringify(rec.after), rec.explanation]
+      );
+    }
+    
+    // Update status back to COMPLETED
+    await pool.query(
+      'UPDATE crawl_jobs SET status = $1 WHERE id = $2',
+      ['COMPLETED', jobId]
+    );
+    
+    res.json({ success: true, message: 'AI improvement completed' });
+  } catch (error) {
+    console.error('Error improving sitemap:', error);
+    
+    // Update status back to COMPLETED on error
+    try {
+      await pool.query(
+        'UPDATE crawl_jobs SET status = $1 WHERE id = $2',
+        ['COMPLETED', req.params.jobId]
+      );
+    } catch (e) {
+      // Ignore error
+    }
+    
     res.status(500).json({ error: error.message });
   }
 });

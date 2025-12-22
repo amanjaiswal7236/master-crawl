@@ -29,21 +29,16 @@ async function processSitemap(jobId, sitemap) {
     // Stage 4: Global Merge
     const globalPlan = await mergeInsights(chunkInsights, compressed);
     
-    // Stage 5: Apply optimizations
-    const optimizedSitemap = applyOptimizations(sitemap, globalPlan);
-    
     // Extract recommendations for display
     const recommendations = extractRecommendations(globalPlan);
     
     return {
-      optimizedSitemap,
       recommendations,
     };
   } catch (error) {
     console.error('AI processing error:', error);
-    // Return original sitemap if AI fails
+    // Return empty recommendations if AI fails
     return {
-      optimizedSitemap: sitemap,
       recommendations: [],
     };
   }

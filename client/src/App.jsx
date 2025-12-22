@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import CrawlDashboard from './components/CrawlDashboard';
 import NewCrawlForm from './components/NewCrawlForm';
-import './App.css';
+import { Header } from './components/Header';
 
 const API_BASE = '/api';
 
@@ -82,22 +82,21 @@ function App() {
 
   if (loading) {
     return (
-      <div className="app">
-        <div className="loading">Loading...</div>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-pulse text-muted-foreground">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="app">
-      <header className="app-header">
-        <h1>🧠 SaaS Sitemap Generator</h1>
-        <p>AI-powered multi-website crawling with real-time status</p>
-      </header>
-
-      <main className="app-main">
-        <NewCrawlForm onSubmit={handleNewCrawl} />
-        <CrawlDashboard jobs={jobs} onRefresh={fetchJobs} />
+    <div className="min-h-screen bg-background">
+      <Header />
+      
+      <main className="container px-4 md:px-6 py-8">
+        <div className="max-w-4xl mx-auto space-y-6">
+          <NewCrawlForm onSubmit={handleNewCrawl} />
+          <CrawlDashboard jobs={jobs} onRefresh={fetchJobs} />
+        </div>
       </main>
     </div>
   );

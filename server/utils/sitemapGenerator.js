@@ -25,109 +25,110 @@ function generateXMLSitemap(pages, baseUrl) {
 }
 
 /**
- * Generate tree diagram representation
+ * Generate tree diagram representation (improved to match revize-ai format)
  */
 function generateTreeDiagram(pages, baseUrl) {
+  if (!pages || pages.length === 0) {
+    return `${baseUrl}\n└── (No pages found)`;
+  }
+  
   const url = new URL(baseUrl);
   const base = `${url.protocol}//${url.host}`;
   
-  // Build tree structure
-  const tree = {
-    name: 'Root',
-    path: '/',
-    fullUrl: base,
-    children: {},
-    pages: []
-  };
-  
-  // Check if homepage exists (without hash)
-  const homepage = pages.find(p => {
+  // Find root page (homepage)
+  const rootPage = pages.find(p => {
     try {
       const u = new URL(p.url);
-      return (u.pathname === '/' || u.pathname === '') && (!u.hash || u.hash === '');
+      return (u.pathname === '/' || u.pathname === '') && (!u.hash || u.hash === '' || u.hash === '#');
     } catch {
       return false;
     }
+  }) || pages[0];
+  
+  // Build a map of pages by URL for quick lookup
+  const pageMap = new Map();
+  pages.forEach(page => {
+    pageMap.set(page.url, {
+      ...page,
+      children: []
+    });
   });
   
-  if (homepage) {
-    tree.pages.push({
-      url: homepage.url,
-      title: homepage.title || 'Homepage',
-      depth: homepage.depth
-    });
-  }
+  // Build parent-child relationships
+  const rootNodes = [];
+  pages.forEach(page => {
+    const node = pageMap.get(page.url);
+    if (page.parentUrl && pageMap.has(page.parentUrl)) {
+      const parent = pageMap.get(page.parentUrl);
+      if (!parent.children) parent.children = [];
+      parent.children.push(node);
+    } else if (page.url === rootPage?.url || (!page.parentUrl && page.depth === 0)) {
+      rootNodes.push(node);
+    } else {
+      // Orphan page - add to root
+      rootNodes.push(node);
+    }
+  });
   
-  for (const page of pages) {
-    const urlObj = new URL(page.url);
-    const pathParts = urlObj.pathname.split('/').filter(p => p);
-    const hasHash = urlObj.hash && urlObj.hash !== '';
-    
-    // Handle hash URLs on homepage
-    if (hasHash && pathParts.length === 0) {
-      // Hash URL on homepage - add to root pages
-      tree.pages.push({
-        url: page.url,
-        title: page.title || urlObj.hash.substring(1) || 'Hash Route',
-        depth: page.depth
-      });
-      continue;
-    }
-    
-    // Skip homepage without hash (already added above)
-    if (pathParts.length === 0 && !hasHash) continue;
-    
-    let current = tree;
-    let path = '';
-    
-    // Build path structure
-    for (let i = 0; i < pathParts.length; i++) {
-      const part = pathParts[i];
-      path += '/' + part;
-      
-      if (!current.children[part]) {
-        current.children[part] = {
-          name: part,
-          path: path,
-          fullUrl: base + path,
-          children: {},
-          pages: []
-        };
-      }
-      
-      current = current.children[part];
-    }
-    
-    // Add page to the appropriate node (both regular and hash URLs)
-    current.pages.push({
-      url: page.url,
-      title: page.title || (hasHash ? urlObj.hash.substring(1) : pathParts[pathParts.length - 1]) || 'Page',
-      depth: page.depth
-    });
+  // If no root nodes found, use the first page
+  if (rootNodes.length === 0 && pages.length > 0) {
+    rootNodes.push(pageMap.get(pages[0].url));
   }
   
   // Convert to text tree
   let output = `${base}\n`;
   
-  // Display all pages at root level (including hash URLs)
-  if (tree.pages.length > 0) {
-    for (let i = 0; i < tree.pages.length; i++) {
-      const page = tree.pages[i];
-      const isLast = i === tree.pages.length - 1 && Object.keys(tree.children).length === 0;
-      output += (isLast ? '└── ' : '├── ') + `📄 ${page.title}\n`;
-      output += (isLast ? '    ' : '│   ') + `   ${page.url}\n`;
-    }
-  }
+  // Build tree text from root nodes
+  rootNodes.forEach((node, idx) => {
+    const isLast = idx === rootNodes.length - 1;
+    output += buildTreeTextFromNode(node, '', isLast);
+  });
   
-  // Display children
-  if (Object.keys(tree.children).length > 0) {
-    const prefix = tree.pages.length > 0 ? '│   ' : '';
-    output += buildTreeText(tree.children, prefix, tree.pages.length === 0 && Object.keys(tree.children).length === 1);
+  return output;
+}
+
+/**
+ * Build tree text from a node (recursive)
+ */
+function buildTreeTextFromNode(node, prefix, isLast) {
+  if (!node) return '';
+  
+  let output = '';
+  const title = node.title && node.title !== 'ERROR: Error' && node.title !== 'Error' && node.title !== 'ERROR'
+    ? node.title
+    : (() => {
+        try {
+          const urlObj = new URL(node.url);
+          const hash = urlObj.hash?.substring(1);
+          const pathParts = urlObj.pathname.split('/').filter(p => p);
+          if (hash && hash.startsWith('/')) {
+            return hash.substring(1).split('/').pop()?.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Page';
+          }
+          return pathParts.length > 0 
+            ? pathParts[pathParts.length - 1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+            : 'Home';
+        } catch {
+          return 'Page';
+        }
+      })();
+  
+  const connector = isLast ? '└── ' : '├── ';
+  output += prefix + connector + `📄 ${title}\n`;
+  output += prefix + (isLast ? '    ' : '│   ') + `   ${node.url}\n`;
+  
+  // Add children
+  if (node.children && node.children.length > 0) {
+    node.children.forEach((child, idx) => {
+      const isLastChild = idx === node.children.length - 1;
+      const childPrefix = prefix + (isLast ? '    ' : '│   ');
+      output += buildTreeTextFromNode(child, childPrefix, isLastChild);
+    });
   }
   
   return output;
 }
 
+// Legacy function kept for backward compatibility (not used in new implementation)
 function buildTreeText(node, prefix, isLast) {
   let output = '';
   const entries = Object.entries(node);
@@ -149,7 +150,10 @@ function buildTreeText(node, prefix, isLast) {
         const page = value.pages[pIdx];
         const isLastPage = pIdx === value.pages.length - 1 && Object.keys(value.children).length === 0;
         const pagePrefix = prefix + (isLastItem ? '    ' : '│   ');
-        output += pagePrefix + (isLastPage ? '└── ' : '├── ') + `📄 ${page.title || 'Untitled'}\n`;
+        const pageTitle = page.title && page.title !== 'ERROR: Error' && page.title !== 'Error' && page.title !== 'ERROR'
+          ? page.title
+          : 'Untitled';
+        output += pagePrefix + (isLastPage ? '└── ' : '├── ') + `📄 ${pageTitle}\n`;
         output += pagePrefix + (isLastPage ? '    ' : '│   ') + `   ${page.url}\n`;
       }
     }
@@ -167,16 +171,38 @@ function buildTreeText(node, prefix, isLast) {
  * Generate JSON sitemap (already exists, but ensure it's complete)
  */
 function generateJSONSitemap(pages) {
-  return {
-    version: '1.0',
-    totalPages: pages.length,
-    generatedAt: new Date().toISOString(),
-    pages: pages.map(page => ({
+  // Clean up titles - replace "ERROR: Error" with better titles
+  const cleanedPages = pages.map(page => {
+    let title = page.title;
+    if (!title || title === 'ERROR: Error' || title === 'Error' || title === 'ERROR') {
+      try {
+        const urlObj = new URL(page.url);
+        const hash = urlObj.hash?.substring(1);
+        const pathParts = urlObj.pathname.split('/').filter(p => p);
+        if (hash && hash.startsWith('/')) {
+          title = hash.substring(1).split('/').pop()?.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Page';
+        } else {
+          title = pathParts.length > 0 
+            ? pathParts[pathParts.length - 1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+            : 'Home';
+        }
+      } catch {
+        title = 'Page';
+      }
+    }
+    return {
       url: page.url,
-      title: page.title,
+      title: title,
       depth: page.depth,
       parentUrl: page.parentUrl
-    }))
+    };
+  });
+  
+  return {
+    version: '1.0',
+    totalPages: cleanedPages.length,
+    generatedAt: new Date().toISOString(),
+    pages: cleanedPages
   };
 }
 
