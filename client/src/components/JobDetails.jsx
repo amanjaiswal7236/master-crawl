@@ -4,12 +4,15 @@ import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { cn } from '../lib/utils';
+import SitemapTree from './SitemapTree';
 
 function JobDetails({ job, onClose }) {
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
   const [improving, setImproving] = useState(false);
+  const [sitemapView, setSitemapView] = useState('tree'); // 'tree' or 'json'
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     fetchDetails();
@@ -184,7 +187,90 @@ function JobDetails({ job, onClose }) {
           )}
 
           {activeTab === 'recommendations' && (
-            <div>
+            <div className="space-y-4">
+              {details.systemPrompt && (
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium text-muted-foreground">Full System Prompt</label>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const copyToClipboard = async () => {
+                            try {
+                              if (navigator.clipboard && navigator.clipboard.writeText) {
+                                await navigator.clipboard.writeText(details.systemPrompt);
+                                setCopied(true);
+                                setTimeout(() => setCopied(false), 2000);
+                              } else {
+                                // Fallback for older browsers
+                                const textArea = document.createElement('textarea');
+                                textArea.value = details.systemPrompt;
+                                textArea.style.position = 'fixed';
+                                textArea.style.left = '-999999px';
+                                document.body.appendChild(textArea);
+                                textArea.focus();
+                                textArea.select();
+                                try {
+                                  document.execCommand('copy');
+                                  setCopied(true);
+                                  setTimeout(() => setCopied(false), 2000);
+                                } catch (err) {
+                                  console.error('Fallback copy failed:', err);
+                                }
+                                document.body.removeChild(textArea);
+                              }
+                            } catch (err) {
+                              console.error('Failed to copy:', err);
+                              // Try fallback
+                              const textArea = document.createElement('textarea');
+                              textArea.value = details.systemPrompt;
+                              textArea.style.position = 'fixed';
+                              textArea.style.left = '-999999px';
+                              document.body.appendChild(textArea);
+                              textArea.focus();
+                              textArea.select();
+                              try {
+                                document.execCommand('copy');
+                                setCopied(true);
+                                setTimeout(() => setCopied(false), 2000);
+                              } catch (fallbackErr) {
+                                console.error('Fallback copy failed:', fallbackErr);
+                                alert('Failed to copy. Please select and copy manually.');
+                              }
+                              document.body.removeChild(textArea);
+                            }
+                          };
+                          copyToClipboard();
+                        }}
+                        className="gap-2"
+                      >
+                        {copied ? (
+                          <>
+                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            Copied!
+                          </>
+                        ) : (
+                          <>
+                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            Copy
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                    <pre className="mt-2 p-3 rounded bg-muted text-xs overflow-auto font-mono whitespace-pre-wrap break-words max-h-96">
+                      {details.systemPrompt}
+                    </pre>
+                  </CardContent>
+                </Card>
+              )}
               {details.recommendations && details.recommendations.length > 0 ? (
                 <div className="space-y-4">
                   {details.recommendations.map((rec) => (
@@ -231,7 +317,23 @@ function JobDetails({ job, onClose }) {
             <div className="space-y-4">
               {details.sitemap?.original_sitemap ? (
                 <>
-                  <div className="flex items-center justify-end gap-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex gap-2">
+                      <Button
+                        variant={sitemapView === 'tree' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setSitemapView('tree')}
+                      >
+                        Tree View
+                      </Button>
+                      <Button
+                        variant={sitemapView === 'json' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setSitemapView('json')}
+                      >
+                        JSON View
+                      </Button>
+                    </div>
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm" asChild>
                         <a
@@ -243,10 +345,10 @@ function JobDetails({ job, onClose }) {
                       </Button>
                       <Button variant="outline" size="sm" asChild>
                         <a
-                          href={`/api/crawl/${job.id}/download/xml`}
+                          href={`/api/crawl/${job.id}/download/excel`}
                           download
                         >
-                          Download XML
+                          Download Excel
                         </a>
                       </Button>
                       <Button variant="outline" size="sm" asChild>
@@ -259,17 +361,21 @@ function JobDetails({ job, onClose }) {
                       </Button>
                     </div>
                   </div>
-                  <Card>
-                    <CardContent className="p-4">
-                      <pre className="text-xs overflow-auto max-h-96 bg-muted p-4 rounded">
-                        {JSON.stringify(
-                          details.sitemap.original_sitemap,
-                          null,
-                          2
-                        )}
-                      </pre>
-                    </CardContent>
-                  </Card>
+                  {sitemapView === 'tree' ? (
+                    <SitemapTree sitemap={details.sitemap.original_sitemap} />
+                  ) : (
+                    <Card>
+                      <CardContent className="p-4">
+                        <pre className="text-xs overflow-auto max-h-96 bg-muted p-4 rounded">
+                          {JSON.stringify(
+                            details.sitemap.original_sitemap,
+                            null,
+                            2
+                          )}
+                        </pre>
+                      </CardContent>
+                    </Card>
+                  )}
                 </>
               ) : (
                 <div className="text-center py-12">

@@ -158,7 +158,7 @@ async function crawlWebsite({ jobId, domain, maxDepth = 3, maxPages = 500, onPro
   const CONCURRENCY = 6;
 
   // Load robots.txt
-  const robots = await loadRobots(baseUrl);
+  // const robots = await loadRobots(baseUrl);
 
   // Launch browser
   const browser = await chromium.launch({ 
@@ -189,10 +189,10 @@ async function crawlWebsite({ jobId, domain, maxDepth = 3, maxPages = 500, onPro
           }
 
           // Check robots.txt
-          if (!robots.isAllowed(url, '*')) {
-            console.log(`🚫 Blocked by robots.txt: ${url}`);
-            return;
-          }
+          // if (!robots.isAllowed(url, '*')) {
+          //   console.log(`🚫 Blocked by robots.txt: ${url}`);
+          //   return;
+          // }
 
           visited.add(url);
           console.log(`✔ [${item.depth}] ${url}`);

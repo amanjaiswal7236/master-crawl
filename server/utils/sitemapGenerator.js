@@ -1,4 +1,5 @@
 const { pool } = require('../db/init');
+const XLSX = require('xlsx');
 
 /**
  * Generate XML sitemap from pages
@@ -222,6 +223,58 @@ function calculatePriority(depth) {
 }
 
 /**
+ * Generate Excel sitemap from pages
+ */
+function generateExcelSitemap(pages, baseUrl) {
+  // Clean up titles
+  const cleanedPages = pages.map(page => {
+    let title = page.title;
+    if (!title || title === 'ERROR: Error' || title === 'Error' || title === 'ERROR') {
+      try {
+        const urlObj = new URL(page.url);
+        const hash = urlObj.hash?.substring(1);
+        const pathParts = urlObj.pathname.split('/').filter(p => p);
+        if (hash && hash.startsWith('/')) {
+          title = hash.substring(1).split('/').pop()?.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Page';
+        } else {
+          title = pathParts.length > 0 
+            ? pathParts[pathParts.length - 1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+            : 'Home';
+        }
+      } catch {
+        title = 'Page';
+      }
+    }
+    return {
+      'URL': page.url,
+      'Title': title,
+      'Depth': page.depth,
+      'Parent URL': page.parentUrl || ''
+    };
+  });
+
+  // Create workbook and worksheet
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(cleanedPages);
+  
+  // Set column widths
+  worksheet['!cols'] = [
+    { wch: 50 }, // URL
+    { wch: 30 }, // Title
+    { wch: 10 }, // Depth
+    { wch: 50 }  // Parent URL
+  ];
+  
+  // Add worksheet to workbook
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Sitemap');
+  
+  // Generate Excel file buffer
+  const excelBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  
+  return excelBuffer;
+}
+
+/**
  * Get sitemap in requested format
  */
 async function getSitemap(jobId, format = 'json') {
@@ -257,6 +310,12 @@ async function getSitemap(jobId, format = 'json') {
         contentType: 'application/xml',
         filename: `sitemap-${jobId}.xml`
       };
+    case 'excel':
+      return {
+        content: generateExcelSitemap(pages, baseUrl),
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        filename: `sitemap-${jobId}.xlsx`
+      };
     case 'tree':
       return {
         content: generateTreeDiagram(pages, baseUrl),
@@ -277,6 +336,7 @@ module.exports = {
   generateXMLSitemap,
   generateTreeDiagram,
   generateJSONSitemap,
+  generateExcelSitemap,
   getSitemap
 };
 

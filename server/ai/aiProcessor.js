@@ -9,6 +9,67 @@ const MAX_TOKENS_PER_CHUNK = 100000; // Conservative limit
 const MAX_OUTPUT_TOKENS = 4000;
 
 /**
+ * Get the system prompt used for AI analysis
+ */
+function getSystemPrompt() {
+  return 'You are a sitemap optimization expert. Always respond with valid JSON only.';
+}
+
+/**
+ * Get the full prompt template (system + user prompt examples)
+ */
+function getFullPrompt() {
+  const systemPrompt = getSystemPrompt();
+  
+  const chunkAnalysisPrompt = `You are a sitemap optimization expert. Analyze this sitemap section and provide recommendations.
+
+Sitemap Section: {chunk.path}
+Structure: {JSON.stringify(chunk.structure, null, 2)}
+
+Provide a JSON response with:
+{
+  "issues": ["list of issues found"],
+  "recommendations": [
+    {
+      "category": "URL_DEPTH|GROUPING|DUPLICATES|NAVIGATION",
+      "before": "current structure",
+      "after": "suggested structure",
+      "explanation": "why this change improves UX"
+    }
+  ]
+}
+
+Keep recommendations concise and actionable.`;
+
+  const mergePrompt = `You are a sitemap optimization expert. Merge these recommendations into a coherent global optimization plan.
+
+All Issues Found: {JSON.stringify(allIssues, null, 2)}
+All Recommendations: {JSON.stringify(allRecommendations, null, 2)}
+Full Sitemap Structure: {JSON.stringify(compressed, null, 2)}
+
+Provide a JSON response with a prioritized optimization plan:
+{
+  "priority": "HIGH|MEDIUM|LOW",
+  "optimizations": [
+    {
+      "category": "URL_DEPTH|GROUPING|DUPLICATES|NAVIGATION",
+      "before": "current structure",
+      "after": "optimized structure",
+      "explanation": "detailed explanation",
+      "impact": "HIGH|MEDIUM|LOW"
+    }
+  ]
+}`;
+
+  return {
+    system: systemPrompt,
+    chunkAnalysis: chunkAnalysisPrompt,
+    merge: mergePrompt,
+    full: `SYSTEM PROMPT:\n${systemPrompt}\n\n---\n\nCHUNK ANALYSIS PROMPT:\n${chunkAnalysisPrompt}\n\n---\n\nMERGE PROMPT:\n${mergePrompt}`
+  };
+}
+
+/**
  * Token-safe AI processing using hierarchical chunking
  */
 async function processSitemap(jobId, sitemap) {
@@ -232,5 +293,5 @@ function extractRecommendations(globalPlan) {
   return recommendations;
 }
 
-module.exports = { processSitemap };
+module.exports = { processSitemap, getSystemPrompt, getFullPrompt };
 

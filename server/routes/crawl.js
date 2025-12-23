@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const { pool } = require('../db/init');
 const { crawlQueue } = require('../queue/queue');
 const { getSitemap } = require('../utils/sitemapGenerator');
+const { getSystemPrompt, getFullPrompt } = require('../ai/aiProcessor');
 
 const router = express.Router();
 
@@ -95,11 +96,13 @@ router.get('/:jobId', async (req, res) => {
       [jobId]
     );
     
+    const fullPrompt = getFullPrompt();
     res.json({
       ...job,
       pagesCount: parseInt(pagesResult.rows[0].count),
       sitemap: sitemapResult.rows[0] ? { original_sitemap: sitemapResult.rows[0].original_sitemap } : null,
-      recommendations: recsResult.rows || []
+      recommendations: recsResult.rows || [],
+      systemPrompt: fullPrompt.full
     });
   } catch (error) {
     console.error('Error fetching crawl:', error);
@@ -157,14 +160,14 @@ router.delete('/:jobId', async (req, res) => {
 
 /**
  * GET /api/crawl/:jobId/download/:format
- * Download sitemap in specified format (json, xml, tree)
+ * Download sitemap in specified format (json, excel, tree)
  */
 router.get('/:jobId/download/:format', async (req, res) => {
   try {
     const { jobId, format } = req.params;
     
-    if (!['json', 'xml', 'tree'].includes(format.toLowerCase())) {
-      return res.status(400).json({ error: 'Invalid format. Use json, xml, or tree' });
+    if (!['json', 'xml', 'excel', 'tree'].includes(format.toLowerCase())) {
+      return res.status(400).json({ error: 'Invalid format. Use json, xml, excel, or tree' });
     }
     
     const sitemap = await getSitemap(jobId, format);

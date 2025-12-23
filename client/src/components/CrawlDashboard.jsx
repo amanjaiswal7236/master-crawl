@@ -4,7 +4,6 @@ import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { formatDistanceToNow } from 'date-fns';
 
 function CrawlDashboard({ jobs, onRefresh }) {
   const [selectedJob, setSelectedJob] = useState(null);
@@ -102,8 +101,6 @@ function CrawlDashboard({ jobs, onRefresh }) {
                 <TableHead>URL</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Pages</TableHead>
-                <TableHead className="text-right">Progress</TableHead>
-                <TableHead>Date</TableHead>
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
@@ -157,24 +154,8 @@ function CrawlDashboard({ jobs, onRefresh }) {
                             d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                           />
                         </svg>
-                        {job.pagesCrawled || 0} / {job.maxPages || 0}
+                        {job.pagesCrawled || 0}
                       </span>
-                    ) : (
-                      '-'
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {job.maxPages > 0 ? (
-                      <span className="text-sm text-muted-foreground">
-                        {Math.min(100, Math.round(((job.pagesCrawled || 0) / job.maxPages) * 100))}%
-                      </span>
-                    ) : (
-                      '-'
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {job.created_at ? (
-                      formatDistanceToNow(new Date(job.created_at), { addSuffix: true })
                     ) : (
                       '-'
                     )}
